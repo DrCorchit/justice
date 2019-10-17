@@ -1,11 +1,7 @@
 package justice.lang.util;
 
-public interface Keyable<T> {
-	T key();
-
-	default String keyAsString() {
-		return normalize(key().toString());
-	}
+public interface Keyable {
+	String key();
 
 	static String normalize(String key) {
 		//convert spaces/dash/slash/backslash to underscore _

@@ -1,4 +1,4 @@
-package justice.lang.code;
+package justice.lang.namespaces;
 
 import justice.lang.code.types.DataType;
 

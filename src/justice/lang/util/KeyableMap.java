@@ -2,14 +2,14 @@ package justice.lang.util;
 
 import java.util.Set;
 
-public interface KeyableMap<K, V extends Keyable<K>> {
+public interface KeyableMap<T extends Keyable> {
 
-	V get(K key);
+	T get(String key);
 
-	V put(V value);
+	T put(T value);
 
-	boolean has(V value);
+	boolean has(T value);
 
-	Set<V> values();
+	Set<String> keys();
 
 }
