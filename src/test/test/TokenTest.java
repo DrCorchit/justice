@@ -14,7 +14,7 @@ public class TokenTest {
 	public void simpleTest() {
 		ArrayList<Tokens.Token> expected = new ArrayList<>();
 		expected.add(Tokens.CONSTANT.create("1+2"));
-		ImmutableList<Token> actual = Tokens.tokenize("1+3");
+		ImmutableList<Token> actual = Tokens.tokenize("1+3\"hello\"(1+2) ** 3");
 		Assertions.assertEquals(expected, actual);
 	}
 

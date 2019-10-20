@@ -55,8 +55,8 @@ public class Tokens {
 	public static final PairToken BRACKET = new PairToken('[', ']');
 	public static final PairToken BRACE = new PairToken('{', '}');
 
-	public static final RegexToken CONSTANT = new RegexToken("[-+]?\\d*\\.?\\d+");
-	public static final RegexToken IDENTIFIER = new RegexToken("\\.?\\w+(\\.\\w+)*");
+	public static final RegexToken CONSTANT = new RegexToken("Num", "[-+]?\\d+(\\.\\d+)?\\b");
+	public static final RegexToken IDENTIFIER = new RegexToken("Var", "\\.?\\w+\\b");
 
 	public static final ImmutableSet<Token> TOKENS;
 
@@ -70,27 +70,13 @@ public class Tokens {
 	}
 
 	public static abstract class Token {
-		abstract String getRegex();
+		abstract String getPattern();
+
+		abstract boolean isFungible();
 
 		@Override
 		public String toString() {
-			return getClass().getSimpleName()+"[" + getRegex() + "]";
-		}
-	}
-
-	//used to store partially tokenized text
-	public static class TodoToken extends Token {
-		private final String value;
-		private final Context context;
-
-		public TodoToken(String value, Context context) {
-			this.value = value;
-			this.context = context;
-		}
-
-		@Override
-		String getRegex() {
-			return null;
+			return getClass().getSimpleName() + "[" + getPattern() + "]";
 		}
 	}
 
@@ -104,8 +90,18 @@ public class Tokens {
 		}
 
 		@Override
-		String getRegex() {
+		String getPattern() {
 			return "\"";
+		}
+
+		@Override
+		boolean isFungible() {
+			return false;
+		}
+
+		@Override
+		public String toString() {
+			return "\"" + value + "\"";
 		}
 	}
 
@@ -117,9 +113,18 @@ public class Tokens {
 			this.op = op;
 		}
 
+		@Override
+		String getPattern() {
+			return op.getShortName();
+		}
 
 		@Override
-		String getRegex() {
+		boolean isFungible() {
+			return true;
+		}
+
+		@Override
+		public String toString() {
 			return op.getShortName();
 		}
 	}
@@ -132,7 +137,17 @@ public class Tokens {
 		}
 
 		@Override
-		String getRegex() {
+		String getPattern() {
+			return "^" + value + "\\b.*";
+		}
+
+		@Override
+		boolean isFungible() {
+			return true;
+		}
+
+		@Override
+		public String toString() {
 			return value;
 		}
 	}
@@ -170,8 +185,13 @@ public class Tokens {
 		}
 
 		@Override
-		String getRegex() {
+		String getPattern() {
 			return String.valueOf(l);
+		}
+
+		@Override
+		boolean isFungible() {
+			return true;
 		}
 
 		public class RawPairToken extends Token {
@@ -188,7 +208,17 @@ public class Tokens {
 			}
 
 			@Override
-			String getRegex() {
+			String getPattern() {
+				return String.valueOf(chr);
+			}
+
+			@Override
+			boolean isFungible() {
+				return true;
+			}
+
+			@Override
+			public String toString() {
 				return String.valueOf(chr);
 			}
 		}
@@ -204,22 +234,38 @@ public class Tokens {
 				subtokens = ImmutableList.copyOf(tokens);
 			}
 
+			public PairToken parent() {
+				return PairToken.this;
+			}
+
 			public ImmutableList<Token> getTokens() {
 				return subtokens;
 			}
 
 			@Override
-			String getRegex() {
+			String getPattern() {
 				return null;
+			}
+
+			@Override
+			boolean isFungible() {
+				return false;
+			}
+
+			@Override
+			public String toString() {
+				return String.format(" %c %s %c ", l, subtokens, r);
 			}
 		}
 	}
 
 	//used to match a wide range of token types (identifiers/constants)
 	public static class RegexToken extends Token {
+		private final String name;
 		private final String regex;
 
-		private RegexToken(String regex) {
+		private RegexToken(String name, String regex) {
+			this.name = name;
 			this.regex = regex;
 		}
 
@@ -228,8 +274,13 @@ public class Tokens {
 		}
 
 		@Override
-		String getRegex() {
+		String getPattern() {
 			return regex;
+		}
+
+		@Override
+		boolean isFungible() {
+			return false;
 		}
 
 		public class SubToken extends Token {
@@ -248,22 +299,31 @@ public class Tokens {
 			}
 
 			@Override
-			String getRegex() {
+			String getPattern() {
 				return value;
+			}
+
+			@Override
+			boolean isFungible() {
+				return false;
+			}
+
+			@Override
+			public String toString() {
+				return String.format(" %s[%s] ", name, value);
 			}
 		}
 	}
 
 	public static ImmutableList<Token> tokenize(String content) {
 		ArrayList<Token> output = tokenizeFirstPass(content);
-		//output = tokenizePairs(output);
-
+		output = tokenizeSecondPass(output);
 		return ImmutableList.copyOf(output);
 	}
 
-	public static ArrayList<Token> tokenizeFirstPass(String input) {
+	public static ArrayList<Token> tokenizeFirstPass(final String input) {
 		boolean quoteOpen = false, escapeOpen = false;
-		int quoteClosePos = 0, quoteOpenPos = 0;
+		int quoteOpenPos = 0;
 		ArrayList<Token> output = new ArrayList<>();
 
 		for (int i = 0; i < input.length(); i++) {
@@ -277,9 +337,7 @@ public class Tokens {
 				case ')':
 				case ']':
 					if (!quoteOpen) {
-						output.add(new TodoToken(input.substring(quoteClosePos, i), Context.TOP_LEVEL));
 						output.add(PairToken.of(c));
-						quoteClosePos = i + 1;
 					}
 					break;
 				case '"':
@@ -287,9 +345,7 @@ public class Tokens {
 						escapeOpen = false;
 					} else {
 						if (quoteOpen) {
-							output.add(new TodoToken(input.substring(quoteClosePos, quoteOpenPos), Context.TOP_LEVEL));
 							output.add(new QuoteToken(input.substring(quoteOpenPos + 1, i)));
-							quoteClosePos = i + 1;
 						} else {
 							quoteOpenPos = i;
 						}
@@ -300,24 +356,40 @@ public class Tokens {
 					escapeOpen = !escapeOpen;
 					break;
 				default:
-					if (!quoteOpen) {
+					if (!quoteOpen && !Character.isWhitespace(c)) {
 						String remain = input.substring(i);
 
+						boolean matched = false;
 						for (Token token : TOKENS) {
 							if (token instanceof RegexToken) {
-								String regex = "^" + token.getRegex();
+								String regex = token.getPattern();
 								String temp = remain.replaceFirst(regex, "");
 								int dif = remain.length() - temp.length();
 								if (dif > 0) {
 									output.add(((RegexToken) token).create(remain.substring(0, dif)));
-									i += dif-1;
-									break;
+									i += dif - 1;
+									matched = true;
 								}
-							} else if (remain.startsWith(token.getRegex())) {
-								output.add(token);
-								i += token.getRegex().length()-1;
-								break;
+							} else if (token instanceof StringToken) {
+								String regex = token.getPattern();
+								String temp = remain.replaceFirst(regex, "");
+								int dif = remain.length() - temp.length();
+								if (dif > 0) {
+									output.add(token);
+									i += dif - 1;
+									matched = true;
+								}
+							} else if (token instanceof OpToken) {
+								if (remain.startsWith(token.getPattern())) {
+									output.add(token);
+									i += token.getPattern().length() - 1;
+									matched = true;
+								}
 							}
+							if (matched) break;
+						}
+						if (!matched) {
+							throw new IllegalArgumentException(String.format("Unable to tokenize character %c at position %d", c, i));
 						}
 					}
 					escapeOpen = false;
@@ -330,7 +402,7 @@ public class Tokens {
 		return output;
 	}
 
-	public static ArrayList<Token> tokenizePairs(List<Token> input) {
+	public static ArrayList<Token> tokenizeSecondPass(List<Token> input) {
 		//handles (){}[]
 		ArrayList<Token> output = new ArrayList<>();
 
@@ -351,7 +423,7 @@ public class Tokens {
 
 							if (raw2.chr == right && level == 0) {
 
-								output.add(raw.parent().create(tokenizePairs(input.subList(i + 1, j))));
+								output.add(raw.parent().create(tokenizeSecondPass(input.subList(i + 1, j))));
 								i = j;
 								break;
 							} else if (raw2.left) level++;
@@ -372,84 +444,4 @@ public class Tokens {
 		}
 		return output;
 	}
-
-	/*
-	public static ArrayList<Token> tokenizeSecondPass(String remain) {
-		ArrayList<Token> tokens = new ArrayList<>();
-
-		//Tokenize, but do not build AST. Parentheses do get a recursive structure, though
-		boolean match;
-		ImmutableList.Builder<Token> output = ImmutableList.builder();
-
-		while (!remain.isEmpty()) {
-			remain = remain.trim();
-			match = false;
-			for (Token tok : TOKENS) {
-				if (tok instanceof OpToken) {
-					OpToken op = (OpToken) tok;
-
-
-				} else if (tok instanceof StringToken) {
-					StringToken str = (StringToken) tok;
-
-
-				} else if (tok instanceof PairToken) {
-					PairToken pair = (PairToken) tok;
-
-
-				} else if (tok instanceof RegexToken) {
-					RegexToken regex = (RegexToken) tok;
-					if (remain.matches(regex.regex)) {
-						output.add(regex.create(remain));
-					}
-
-				} else {
-					throw new IllegalStateException("Unknown token type: " + tok.getClass().getName());
-				}
-
-
-				switch (tok) {
-					case IDENTIFIER:
-					case CONSTANT:
-						RegexToken
-
-						String regex = "^" + op.regex();
-						String temp = remain;
-						remain = remain.replaceFirst(regex, "");
-						int dif = temp.length() - remain.length();
-						if (dif > 0) {
-							output.add(new Token(op, temp.substring(0, dif)));
-							match = true;
-						}
-						break;
-					case PAREN:
-						if (remain.startsWith("(")) {
-							int pos = rightParenPos(remain);
-							if (pos == -1) throw new IllegalArgumentException("No matching right paren in expression");
-							output.add(new Token(remain.substring(1, pos)));
-							remain = remain.substring(pos + 1);
-							match = true;
-						}
-						break;
-					default:
-						if (remain.startsWith(op.regex())) {
-							output.add(getToken(op));
-							remain = remain.substring(op.regex().length());
-							match = true;
-						}
-				}
-				if (match) break;
-			}
-			if (!match) {
-				throw new IllegalArgumentException("Could not tokenize string: <" + remain + ">");
-			}
-		}
-
-		return output.build();
-
-
-		return tokens;
-	}
-	*/
-
 }
